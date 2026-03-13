@@ -106,13 +106,3 @@ For each test:
     ▼
 pytest-html generates HTML report
 ```
-
-## Custom HTML Report Without Filters/Controls
-
-To generate a test report without filter controls or the controls section, use the provided custom pytest-html template:
-
-```
-pytest --html=api_test_report.html --self-contained-html --template=assets/pytest-html-template/simple_no_filters.html -v
-```
-
-This will produce a report with no filter checkboxes or controls UI.
