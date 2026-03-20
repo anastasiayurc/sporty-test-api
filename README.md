@@ -1,108 +1,211 @@
 ![logo](img/logo.svg)
 
-## Test Cases Table
+## Test Cases
 
-| **Test Case ID** | **Description** | **Input (Country/Zip)** | **Expected Status** | **Expected Validation** |
-|:-------------|:------------|:--------------------|:-------------------|:--------------------|
-| **TC_01** | Verify valid US zip code returns correct city | us / 90210 | 200 OK | City matches "Beverly Hills"|
-| **TC_02** | Verify valid DE zip code returns correct city | us / 90210 | 200 OK | City matches "Beverly Hills"|
-| **TC_03** |	Verify non-existent zip code returns 404 | us / 00000 | 404 Not Found | Response indicates no data |
-| **TC_04** |	Verify invalid country code returns 404 |	invalid / 12345	| 404 Not Found	| Response indicates no data |
+### Happy Path — 200 OK
 
-## Test Result Validation
-To ensure high-quality results, the following validations were used:
-- Status Code Validation: Confirms the API responds with `200 OK` for valid inputs and `404 Not Found` for invalid inputs, ensuring basic endpoint reliability.
-- Data Integrity Check: For successful requests, the script parses the JSON response and asserts that the first `place name` matches the expected value, verifying that the API returns accurate business data.
-- Schema Presence: Validated that essential keys like post code exist in the response body to ensure the data structure remains consistent
+| **ID** | **Description** | **Input** | **Assertions** | **Markers** |
+|:---|:---|:---|:---|:---|
+| TC_01 | Valid US zip code | us / 90210 | status, place name, post code echo, country, country abbreviation, schema, Content-Type | smoke, regression |
+| TC_02 | Valid DE zip code | de / 10115 | status, place name, post code echo, country, country abbreviation, schema, Content-Type | smoke, regression |
+| TC_03 | Valid FR zip code | fr / 75001 | status, place name, post code echo, country, country abbreviation, schema, Content-Type | regression |
 
-![Demo](img/apitest.gif)
+### Negative Path — 404 Not Found
+
+| **ID** | **Description** | **Input** | **Assertions** | **Markers** |
+|:---|:---|:---|:---|:---|
+| TC_04 | Non-existent zip code | us / 00000 | status 404, body is `{}` | regression |
+| TC_05 | Invalid country code | invalid / 12345 | status 404, body is `{}` | regression |
+| TC_06 | Country / zip mismatch | de / 90210 | status 404, body is `{}` | regression |
+
+### Performance
+
+| **Scope** | **Threshold** | **Markers** |
+|:---|:---|:---|
+| All happy-path inputs (TC_01–TC_03) | < `PERFORMANCE_THRESHOLD_MS` (default 3000ms, env-driven) | performance |
+
+**Total: 6 test cases → 30 test functions** (one assertion per function)
+
+---
+
+## Validations Applied (per 200 response)
+
+- **Status code** — `200` for valid inputs, `404` for invalid
+- **Place name** — first place in response matches expected city
+- **Post code echo** — `post code` in response matches the requested zip
+- **Country name** — full country name matches expected value
+- **Country abbreviation** — ISO abbreviation matches expected value
+- **Schema completeness** — all required top-level and place-level fields present
+- **Content-Type** — response header contains `application/json`
+- **404 body** — error responses return an empty JSON object `{}`
+- **Response time** — under configurable threshold (default 3000ms)
+
+---
 
 ## Installation
-1. Run `pip install -r requirements.txt` to install the dependencies
-2. Run `pytest test_api.py -v` to execute tests showing each test name and PASSED/FAILED instead of just dots
-or `pytest --html=api_test_report.html --self-contained-html -v` to run test with report
+
+```bash
+# 1. Copy environment config
+cp .env.example .env
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Run the full suite
+pytest
+```
+
+The HTML report is generated automatically at `api_test_report.html`.
+
+---
+
+## Running Tests
+
+```bash
+# Full suite
+pytest
+
+# By marker
+pytest -m smoke           # TC_01, TC_02 only
+pytest -m regression      # all functional tests
+pytest -m performance     # response-time tests only
+pytest -m "not performance"
+
+# By class
+pytest tests/test_location.py::TestLocationHappyPath
+pytest tests/test_location.py::TestLocationNegative
+pytest tests/test_location.py::TestLocationPerformance
+
+# Quick output (no live logs)
+pytest --no-header -q
+```
+
+## Environment Overrides
+
+All settings are driven by environment variables. Override at runtime without editing any code:
+
+```bash
+# Target a staging server
+ENV=staging API_BASE_URL=https://staging.api.example.com pytest -m smoke
+
+# Stricter performance threshold
+PERFORMANCE_THRESHOLD_MS=500 pytest -m performance
+
+# Shorter timeout
+API_TIMEOUT=5 pytest
+```
+
+| Variable | Default | Purpose |
+|:---|:---|:---|
+| `ENV` | `local` | Environment name (logged at session start) |
+| `API_BASE_URL` | `https://api.zippopotam.us` | API target URL |
+| `API_TIMEOUT` | `10` | HTTP request timeout in seconds |
+| `PERFORMANCE_THRESHOLD_MS` | `3000` | Max acceptable response time in ms |
+
+---
 
 ## Framework Design
 
-### Architecture Overview
+### Architecture
+
 ```
-sporty-test/
-├── test_api.py          # Test Layer — assertions only, zero hardcoded data
-├── conftest.py          # Config Layer — hooks & report customisation
-├── pytest.ini           # Framework Config — global settings & markers
-├── requirements.txt     # Dependency Management
-├── data/
-│   └── test_data.py     # Data Layer — all test inputs & expected outputs
+sporty-test-api/
+├── .env.example             # Committed env variable template
+├── .env                     # Local overrides — gitignored, never committed
+├── pytest.ini               # Global settings, markers, addopts
+├── requirements.txt         # Pinned dependencies
+├── conftest.py              # Session fixtures, report hooks
+│
+├── config/
+│   └── settings.py          # Settings dataclass — single source of truth
+│
 ├── client/
-│   └── api_client.py    # Client Layer — all HTTP calls (requests.get)
-├── assets/
-│   └── style.css        # Reporting Layer — custom styling
-└── img/
-    └── logo.svg         # Branding assets
+│   ├── base_client.py       # BaseClient — requests.Session, timeout, base URL
+│   └── location_client.py   # LocationClient — one method per endpoint
+│
+├── models/
+│   └── location.py          # LocationResponse + Place dataclasses
+│
+├── data/
+│   └── location_data.py     # HAPPY_CASES, NEGATIVE_CASES dicts
+│
+├── tests/
+│   └── test_location.py     # TestLocationHappyPath / Negative / Performance
+│
+└── assets/
+    └── style.css            # HTML report custom styling
 ```
 
-### Design Pattern: Data-Driven Testing
-Test data, HTTP logic, and assertions live in **separate files**. Adding a new test case requires editing only `data/test_data.py` — no changes to the test or client layers:
+### Layers
+
+```
+┌──────────────────────────────────────────────┐
+│   CONFIG LAYER  (config/settings.py)         │  ← Env vars, .env, frozen dataclass
+├──────────────────────────────────────────────┤
+│     DATA LAYER  (data/location_data.py)      │  ← HAPPY_CASES, NEGATIVE_CASES dicts
+├──────────────────────────────────────────────┤
+│   CLIENT LAYER  (client/location_client.py)  │  ← Endpoint methods, no HTTP detail
+│                 (client/base_client.py)       │  ← requests.Session, timeout, URL
+├──────────────────────────────────────────────┤
+│    MODEL LAYER  (models/location.py)         │  ← Typed response objects
+├──────────────────────────────────────────────┤
+│     TEST LAYER  (tests/test_location.py)     │  ← One assertion per test function
+├──────────────────────────────────────────────┤
+│   FIXTURE LAYER (conftest.py)                │  ← app_settings, location_client,
+│                                              │    response_cache (session-scoped)
+├──────────────────────────────────────────────┤
+│  SETTINGS LAYER (pytest.ini)                 │  ← Log level, markers, addopts
+├──────────────────────────────────────────────┤
+│ REPORTING LAYER (HTML report)                │  ← Results, live logs, custom style
+└──────────────────────────────────────────────┘
+```
+
+### Adding a new test case
+
+Edit **only** `data/location_data.py` — no other file needs to change:
 
 ```python
-# data/test_data.py — add a new dict to extend coverage
-TEST_CASES = [
+# data/location_data.py
+HAPPY_CASES = [
+    # ... existing cases ...
     {
-        "id":              "TC_01 | HappyPath_US_ValidZip",
-        "country_code":    "us",
-        "zip_code":        "90210",
-        "expected_status": 200,
-        "expected_place":  "Beverly Hills",
-        "marks":           ["smoke", "regression"],
+        "id":                            "TC_07 | HappyPath_GB_ValidZip",
+        "country_code":                  "gb",
+        "zip_code":                      "SW1A1AA",
+        "expected_place":                "London",
+        "expected_country":              "United Kingdom",
+        "expected_country_abbreviation": "GB",
+        "marks":                         ["smoke", "regression"],
     },
-    # add more cases here...
 ]
 ```
 
-`build_params()` in `test_api.py` reads `TEST_CASES` at collection time and builds the parametrize list dynamically — including any `pytest.mark` decorators defined per case.
-
-### Layers
-```
-┌─────────────────────────────────────────┐
-│     DATA LAYER  (data/test_data.py)     │  ← Test inputs, expected outputs, marks
-├─────────────────────────────────────────┤
-│   CLIENT LAYER  (client/api_client.py)  │  ← HTTP calls, base URL, timeout
-├─────────────────────────────────────────┤
-│     TEST LAYER  (test_api.py)           │  ← Assertions only, no raw requests
-├─────────────────────────────────────────┤
-│   CONFIG LAYER  (conftest.py)           │  ← Hooks, report customisation
-├─────────────────────────────────────────┤
-│ SETTINGS LAYER  (pytest.ini)            │  ← Log level, markers, report options
-├─────────────────────────────────────────┤
-│REPORTING LAYER  (HTML report)           │  ← Results, logs, styling
-└─────────────────────────────────────────┘
-```
+All 7 test functions in `TestLocationHappyPath` automatically pick it up — 7 new tests with zero code changes.
 
 ### Request Flow
+
 ```
-pytest runs
-    │
-    ▼
-conftest.py loads (hooks registered)
-    │
-    ▼
-data/test_data.py → TEST_CASES list loaded
-    │
-    ▼
-build_params() → parametrize list built dynamically
-(marks, ids, inputs all sourced from TEST_CASES)
-    │
-    ▼
-test_api.py collects N parametrized test cases
-    │
-    ▼
-For each test:
-    ├── Log test banner (TC_01 | ...)
-    ├── client/api_client.py → get_location() sends GET request
-    ├── Validate status code
-    ├── If 200 → validate place name + post code
-    └── If 404 → confirm expected failure
-    │
-    ▼
-pytest-html generates HTML report
+pytest collects tests
+        │
+        ▼
+conftest.py — app_settings loaded from .env / env vars
+        │         _log_environment prints session banner
+        ▼
+location_client (session-scoped) — LocationClient(settings)
+        │
+        ▼
+response_cache (session-scoped) — fetches each (country, zip) once,
+        │         caches Response object for all test functions
+        ▼
+For each test function:
+  response_cache(country_code, zip_code)   ← cached, no duplicate HTTP calls
+        │
+        ▼
+  LocationResponse.from_response(response) ← typed model, no raw dict access
+        │
+        ▼
+  Single assertion → PASS / FAIL
+        │
+        ▼
+pytest-html generates api_test_report.html
 ```

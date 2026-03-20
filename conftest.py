@@ -1,6 +1,50 @@
+import logging
 import pytest
 from datetime import datetime
 from pathlib import Path
+from client.location_client import LocationClient
+from config.settings import settings as _settings
+
+logger = logging.getLogger(__name__)
+
+
+@pytest.fixture(scope="session")
+def app_settings():
+    """Expose the loaded Settings object to all tests."""
+    return _settings
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _log_environment(app_settings):
+    """Print the active environment config once at the start of the session."""
+    logger.info("=" * 60)
+    logger.info(f"  Environment : {app_settings.env}")
+    logger.info(f"  API Base URL: {app_settings.api_base_url}")
+    logger.info(f"  Timeout     : {app_settings.api_timeout}s")
+    logger.info(f"  Perf. limit : {app_settings.performance_threshold_ms}ms")
+    logger.info("=" * 60)
+
+
+@pytest.fixture(scope="session")
+def location_client(app_settings):
+    return LocationClient(app_settings)
+
+
+@pytest.fixture(scope="session")
+def response_cache(location_client):
+    """Fetch each unique (country_code, zip_code) once per session and cache the Response.
+    All test functions share the same cached object — zero duplicate API calls.
+    """
+    _cache: dict = {}
+
+    def _get(country_code: str, zip_code: str):
+        key = (country_code, zip_code)
+        if key not in _cache:
+            _cache[key] = location_client.get_location(country_code, zip_code)
+        return _cache[key]
+
+    return _get
+
 
 def pytest_html_report_title(report):
     report.title = "Sporty Group - API Automation Report"
@@ -26,7 +70,7 @@ def pytest_html_results_summary(postfix, prefix, summary,):
 
     # Clean up test names: show only TC_XX | ... part
     postfix.extend([
-        """
+        r"""
         <script>
             function cleanTestNames() {
                 var cells = document.querySelectorAll("#results-table .col-testId");

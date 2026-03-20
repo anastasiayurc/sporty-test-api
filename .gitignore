@@ -1,0 +1,14 @@
+# Environment variables — never commit secrets or local overrides
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Test artefacts
+api_test_report.html
+
+# macOS
+.DS_Store
